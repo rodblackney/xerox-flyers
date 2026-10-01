@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Xerox Flyer Maker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" crossorigin="anonymous" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Anton&family=Architects+Daughter&family=Black+Ops+One&family=Bungee&family=Courier+Prime:wght@700&family=Permanent+Marker&family=Rubik+Mono+One&family=Special+Elite&family=Stardos+Stencil:wght@700&family=Ultra&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: poster (8.5×11 flyer) on the left, a paste-up control sheet on the right; stacks on phones. */
+:root {
+  --bg: #efeee9;
+  --fg: #1d1c1a;
+  --muted: #74706a;
+  --line: #d9d6cf;
+  --panel: #f9f8f5;
+  --field: #ffffff;
+  --accent: #e0245e;
+  --font-ui: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141413; --fg: #ebe8e3; --muted: #99948c; --line: #2d2b28;
+    --panel: #1b1a19; --field: #232220; --accent: #ff4d84; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141413; --fg: #ebe8e3; --muted: #99948c; --line: #2d2b28;
+  --panel: #1b1a19; --field: #232220; --accent: #ff4d84; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 14px/1.5 var(--font-ui);
+  padding-inline: 16px; padding-block: 32px 56px;
+}
+.app {
+  max-width: 1080px; margin: 0 auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 28px; align-items: start;
+}
+@media (max-width: 820px) { .app { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- Poster: fixed print look, independent of the page theme ---------- */
+.poster-wrap { min-width: 0; display: grid; gap: 10px; }
+.poster {
+  --paper: #efece3; --ink: #121110; --bg-poster: #121110;
+  position: relative;
+  width: 100%; max-width: 100%;
+  aspect-ratio: 8.5 / 11;
+  container-type: inline-size;
+  background: var(--bg-poster);
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 12px 32px rgba(0,0,0,.18);
+  display: flex; flex-direction: column;
+  padding: 3.5cqw 4cqw 4cqw;
+  gap: 2.4cqw;
+}
+.photo {
+  position: absolute; z-index: 0;
+  inset: 0;
+}
+.photo canvas { width: 100%; height: 100%; display: block; }
+.poster[data-style="riot"] .photo,
+.poster[data-style="magazine"] .photo {
+  inset: 34% 7% 17% 7%;
+  background: #f4f2ec;
+  padding: 1.4cqw;
+  filter: drop-shadow(0 .4cqw .6cqw rgba(0,0,0,.5));
+}
+.photo-inner { width: 100%; height: 100%; }
+
+.grain { position: absolute; inset: 0; z-index: 100000; pointer-events: none; width: 100%; height: 100%; mix-blend-mode: normal; opacity: .55; }
+
+.layer { position: relative; }
+[data-key] { position: relative; transform-origin: 50% 50%; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.photo[data-key] { position: absolute; }
+.poster[data-style="xerox"] .photo { cursor: default; }
+[data-key].dragging { cursor: grabbing; }
+[data-key].dragging > * , .scrap.dragging { filter: drop-shadow(0 .9cqw 1cqw rgba(0,0,0,.55)); }
+[data-key]:focus-visible { outline: none; }
+[data-key].flying { transition: translate .55s cubic-bezier(.2,.8,.3,1.1), rotate .55s ease-out; }
+@media (prefers-reduced-motion: reduce) { [data-key].flying { transition: none; } }
+.sel {
+  position: absolute; left: 0; top: 0; z-index: 100001; pointer-events: none;
+  outline: 1.5px dashed #ff4d84; outline-offset: 0;
+}
+.sel .h {
+  position: absolute; width: 16px; height: 16px; padding: 0;
+  background: #fff; border: 2px solid #ff4d84; border-radius: 50%;
+  pointer-events: auto; touch-action: none;
+}
+.sel .h-rot { left: 50%; top: -30px; margin-left: -8px; cursor: grab; }
+.sel .h-rot::after { content: ""; position: absolute; left: 50%; top: 14px; width: 1.5px; height: 14px; margin-left: -.75px; background: #ff4d84; }
+.sel .h-scale { right: -9px; bottom: -9px; border-radius: 3px; cursor: nwse-resize; }
+.sel .h:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.extras { position: absolute; inset: 0; pointer-events: none; }
+.extras > [data-key] { position: absolute; pointer-events: auto; }
+.gone { display: none !important; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { padding: 5px 10px; font-size: 12.5px; border-radius: 999px; }
+button:disabled { opacity: .45; cursor: default; }
+button:disabled:hover { border-color: var(--line); }
+button.danger { color: var(--accent); }
+.saved { font: 11.5px var(--font-mono); color: var(--muted); margin: 0; }
+.keys { color: var(--muted); font-size: 12.5px; margin: 0; line-height: 1.6; }
+.keys kbd { font: 11px var(--font-mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--field); color: var(--fg); }
+.headline {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  row-gap: 1cqw;
+}
+.word { display: inline-flex; flex-wrap: nowrap; align-items: center; }
+.gap { display: inline-block; width: 2.6cqw; }
+.scrap { display: inline-block; filter: drop-shadow(0 .25cqw .25cqw rgba(0,0,0,.45)); }
+.scrap-inner { display: grid; place-items: center; line-height: 1; min-width: .62em; position: relative; overflow: hidden; }
+
+.mid { display: flex; justify-content: space-between; align-items: flex-start; gap: 3cqw; }
+.stack { display: flex; flex-direction: column; gap: .8cqw; }
+.stack.right { align-items: flex-end; }
+.stack.left { align-items: flex-start; }
+
+.strip {
+  display: inline-block;
+  background: var(--strip-bg, #f4f2ec); color: var(--strip-ink, #121110);
+  padding: .5cqw 1.6cqw .35cqw;
+  line-height: 1.1;
+  white-space: nowrap;
+  filter: drop-shadow(0 .2cqw .25cqw rgba(0,0,0,.4));
+}
+.spacer { flex: 1; }
+.bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 2cqw; }
+
+.star { position: relative; width: 26cqw; aspect-ratio: 1; flex: none; filter: drop-shadow(0 .3cqw .3cqw rgba(0,0,0,.45)); }
+.star svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.star span {
+  position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+  font-size: 6.2cqw; line-height: 1; padding-top: 1.2cqw;
+}
+
+.photo-hint {
+  position: absolute; z-index: 3; pointer-events: none; left: 50%; top: 58%; translate: -50% -50%;
+  font: 600 1.9cqw/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
+  color: rgba(255,255,255,.75); background: rgba(0,0,0,.55); padding: .8cqw 1.6cqw; text-align: center;
+}
+.poster-note { color: var(--muted); font-size: 12.5px; margin: 0; }
+
+/* ---------- Controls ---------- */
+.sheet {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px; display: grid; gap: 18px; min-width: 0;
+}
+.sheet h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.sheet > p { margin: -10px 0 0; color: var(--muted); font-size: 13px; }
+.group { display: grid; gap: 10px; }
+.group h2 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.field { display: grid; gap: 4px; }
+.field label { font-size: 13px; }
+.field input[type=text], .field textarea {
+  font: 500 14px/1.4 var(--font-ui); color: var(--fg);
+  background: var(--field); border: 1px solid var(--line); border-radius: 7px;
+  padding: 8px 10px; width: 100%; min-width: 0; resize: vertical;
+}
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--field); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+button, .file {
+  font: 500 13.5px var(--font-ui); color: var(--fg);
+  background: var(--field); border: 1px solid var(--line); border-radius: 7px;
+  padding: 8px 12px; cursor: pointer; text-align: center;
+}
+button:hover, .file:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.row > * { flex: 1 1 auto; }
+.file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.file:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.slider { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; }
+.slider output { font: 12px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.slider input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+
+html { color-scheme: light; }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="poster-wrap">
+    <div class="poster" id="poster" data-style="xerox" aria-label="Flyer preview">
+      <div class="photo" id="photo" data-key="photo"><div class="photo-inner"><canvas id="photoCanvas" width="850" height="1100"></canvas></div></div>
+      <div class="layer headline" id="headline"></div>
+      <div class="layer mid">
+        <div class="stack left" id="when"></div>
+        <div class="stack right" id="lineup"></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="layer bottom">
+        <div class="stack left" id="where"></div>
+        <div class="star" id="star" data-key="star" tabindex="0" aria-label="Price star, drag to move">
+          <svg viewBox="0 0 100 100" aria-hidden="true"><polygon id="starShape" fill="#f4f2ec" points=""></polygon></svg>
+          <span id="price"></span>
+        </div>
+      </div>
+      <div class="photo-hint" id="photoHint">Add a photo<br>to photocopy it</div>
+      <div class="extras" id="extras"></div>
+      <div class="sel" id="sel" hidden>
+        <button class="h h-rot" id="hRot" type="button" aria-label="Rotate selected piece"></button>
+        <button class="h h-scale" id="hScale" type="button" aria-label="Resize selected piece"></button>
+      </div>
+      <canvas class="grain" id="grain" width="850" height="1100"></canvas>
+    </div>
+    <p class="poster-note">Example show with made-up bands. Drag any letter, strip or the star to move it. Click a piece for its rotate and resize handles.</p>
+  </div>
+
+  <aside class="sheet" aria-label="Flyer controls">
+    <h1>Xerox flyer maker</h1>
+    <p>Cut-out headline, pasted-on info strips and a photocopied photo, laid out like a show flyer.</p>
+
+    <div class="group">
+      <h2>Look</h2>
+      <div class="seg" role="group" aria-label="Style">
+        <button type="button" data-style="xerox" aria-pressed="true">Xerox</button>
+        <button type="button" data-style="riot" aria-pressed="false">Riot</button>
+        <button type="button" data-style="magazine" aria-pressed="false">Magazine</button>
+      </div>
+      <div class="row">
+        <button id="reroll" class="primary" type="button">Re-roll</button>
+        <button id="savePng" type="button">Save PNG</button>
+        <label class="file">Add photo<input id="file" type="file" accept="image/*"></label>
+        <button id="clearPhoto" type="button" hidden>Remove photo</button>
+        <button id="scatter" type="button">Scatter headline</button>
+        <button id="resetPos" type="button">Reset layout</button>
+        <button id="startOver" type="button" class="danger">Start over</button>
+      </div>
+      <p class="saved" id="saved" aria-live="polite">Your flyer saves in this browser as you work. Photos aren't saved.</p>
+      <p class="saved"><a href="letters.html" style="color:inherit">Just the cut-out letters →</a></p>
+    </div>
+
+    <div class="group">
+      <h2>Selected piece</h2>
+      <div class="row">
+        <button id="dupBtn" type="button" disabled>Duplicate</button>
+        <button id="frontBtn" type="button" disabled>Bring to front</button>
+        <button id="delBtn" type="button" class="danger" disabled>Delete</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Stickers</h2>
+      <div class="chips" id="chips">
+        <button type="button">ALL AGES</button>
+        <button type="button">NO COPS</button>
+        <button type="button">BYOB</button>
+        <button type="button">TONIGHT!</button>
+        <button type="button">FREE ZINES</button>
+      </div>
+      <div class="row">
+        <input id="stickerText" type="text" placeholder="Your own sticker" maxlength="40" autocomplete="off" aria-label="Sticker text" style="flex:1 1 140px;min-width:0;font:500 14px var(--font-ui);color:var(--fg);background:var(--field);border:1px solid var(--line);border-radius:7px;padding:8px 10px">
+        <button id="addSticker" type="button">Add sticker</button>
+      </div>
+    </div>
+
+    <p class="keys">Selected piece: <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> move, <kbd>[</kbd> <kbd>]</kbd> rotate, <kbd>−</kbd> <kbd>=</kbd> resize, <kbd>Ctrl</kbd>/<kbd>⌘</kbd><kbd>D</kbd> duplicate, <kbd>Delete</kbd> remove, <kbd>Esc</kbd> deselect. Hold <kbd>Shift</kbd> for bigger steps; Shift while rotating snaps to 15°.</p>
+
+    <div class="group">
+      <h2>Words</h2>
+      <div class="field"><label for="tHead">Headline</label><input id="tHead" type="text" value="BASEMENT RIOT" maxlength="40" autocomplete="off"></div>
+      <div class="field"><label for="tLineup">Lineup, one per line</label><textarea id="tLineup" rows="4">Static Mothers
+Dead Fax
+The Paper Cuts
+Xerox Saints</textarea></div>
+      <div class="field"><label for="tWhen">When</label><textarea id="tWhen" rows="3">Friday,
+Nov. 14th
+8:00</textarea></div>
+      <div class="field"><label for="tWhere">Where</label><textarea id="tWhere" rows="2">The Lantern Room
+214 Alder St, back door</textarea></div>
+      <div class="field"><label for="tPrice">Price</label><input id="tPrice" type="text" value="$8" maxlength="10" autocomplete="off"></div>
+    </div>
+
+    <div class="group">
+      <h2>Mess</h2>
+      <div class="slider"><label for="chaos">Chaos</label><output id="chaos-o"></output><input id="chaos" type="range" min="0" max="1" step="0.05" value="0.5"></div>
+      <div class="slider"><label for="grit">Photocopy grit</label><output id="grit-o"></output><input id="grit" type="range" min="0" max="1" step="0.05" value="0.45"></div>
+      <div class="slider"><label for="contrast">Contrast</label><output id="contrast-o"></output><input id="contrast" type="range" min="0.6" max="2.4" step="0.05" value="1.4"></div>
+    </div>
+  </aside>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const poster = $('poster');
+
+  // ---------- Style presets ----------
+  const STYLES = {
+    xerox: {
+      bg: '#121110', photoInk: [18, 17, 16], photoPaper: [239, 236, 227],
+      headFaces: [['"Anton", sans-serif', 400, 'normal', 1.05], ['"Black Ops One", sans-serif', 400, 'normal', .9], ['"Stardos Stencil", serif', 700, 'normal', 1]],
+      headStocks: [['#efece3', '#121110'], ['#121110', '#efece3'], ['#efece3', '#121110']],
+      upperOnly: true,
+      stripFaces: ['"Architects Daughter", cursive', '"Permanent Marker", cursive'],
+      stripStock: ['#efece3', '#121110'], star: '#efece3',
+    },
+    riot: {
+      bg: '#0b0b0b', photoInk: [12, 12, 12], photoPaper: [244, 242, 236],
+      headFaces: [['"Stardos Stencil", serif', 700, 'normal', 1.05], ['"Special Elite", monospace', 400, 'normal', 1], ['"Black Ops One", sans-serif', 400, 'normal', .9]],
+      headStocks: [['#ff2f6e', '#16121c'], ['#ff3d79', '#16121c'], ['#f2275f', '#0f0d14']],
+      upperOnly: true,
+      stripFaces: ['"Courier Prime", monospace', '"Special Elite", monospace'],
+      stripStock: ['#f4f2ec', '#121110'], star: '#f4f2ec', accentStrip: ['#e8262f', '#0b0b0b'],
+    },
+    magazine: {
+      bg: '#1d1915', photoInk: [26, 20, 16], photoPaper: [236, 226, 206],
+      headFaces: [['"Abril Fatface", serif', 400, 'normal', 1], ['"Anton", sans-serif', 400, 'normal', 1], ['"Bungee", sans-serif', 400, 'normal', .85], ['"Rubik Mono One", sans-serif', 400, 'normal', .8], ['"Ultra", serif', 400, 'normal', .85], ['"Courier Prime", monospace', 700, 'normal', .95], ['"Special Elite", monospace', 400, 'normal', 1]],
+      headStocks: [['#f4efe2', '#151412'], ['#fffdf8', '#c4161c'], ['#d8262e', '#fff7ec'], ['#f6d32d', '#151412'], ['#1d4fa3', '#fdfaf2'], ['#2c6e49', '#f6efd9'], ['#f19ac0', '#2a0e1c'], ['#ff6a1a', '#140f0c'], ['#ffffff', '#151412']],
+      upperOnly: false,
+      stripFaces: ['"Special Elite", monospace', '"Courier Prime", monospace', '"Architects Daughter", cursive'],
+      stripStock: ['#f6d32d', '#151412'], star: '#d8262e', starInk: '#fff7ec',
+    },
+  };
+  let style = 'xerox';
+  let seed = 9137;
+  let photoImg = null;
+  // Where each piece has been dragged to, in cqw so it scales with the poster. Keyed by role + position.
+  let offsets = {};
+  let topZ = 10;
+  // Pieces that aren't generated from the text fields: copies of other pieces, and stickers.
+  // Each: { key, kind: 'copy' | 'sticker', src?, html?, text?, left, top } with left/top in cqw.
+  let extras = [];
+  let extraN = 0;
+  function draggable(el, key) {
+    el.dataset.key = key;
+    if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    if (offsets[key]) applyT(el, offsets[key]);
+    return el;
+  }
+  // x/y in cqw, r = extra rotation in degrees, s = scale, z = stacking order.
+  function applyT(el, o) {
+    el.style.translate = o.x || o.y ? `${o.x}cqw ${o.y}cqw` : '';
+    el.style.rotate = o.r ? `${o.r}deg` : '';
+    el.style.scale = o.s && o.s !== 1 ? String(o.s) : '';
+    el.style.zIndex = o.z || '';
+    el.classList.toggle('gone', !!o.gone);
+  }
+  const state = (key) => offsets[key] || (offsets[key] = { x: 0, y: 0, r: 0, s: 1 });
+
+  // ---------- Randomness ----------
+  function rng(a) {
+    return () => {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const hash = (s) => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h; };
+  const pick = (r, a) => a[Math.floor(r() * a.length)];
+  const sym = (r) => r() * 2 - 1;
+
+  function tornPath(r, amount) {
+    const pts = [], torn = r() < .5, steps = torn ? 5 : 1, amp = (torn ? 6 : 2.5) * amount;
+    const edge = (x0, y0, x1, y1, nx, ny) => {
+      for (let i = 0; i < steps; i++) {
+        const t = i / steps, j = i === 0 ? r() * amp : sym(r) * amp * .6 + amp * .5;
+        pts.push(`${(x0 + (x1 - x0) * t + nx * j).toFixed(1)}% ${(y0 + (y1 - y0) * t + ny * j).toFixed(1)}%`);
+      }
+    };
+    edge(0, 0, 100, 0, 0, 1); edge(100, 0, 100, 100, -1, 0); edge(100, 100, 0, 100, 0, -1); edge(0, 100, 0, 0, 1, 0);
+    return `polygon(${pts.join(',')})`;
+  }
+
+  // ---------- Headline ----------
+  function renderHeadline(chaos) {
+    const S = STYLES[style];
+    const el = $('headline');
+    el.replaceChildren();
+    const text = $('tHead').value.trim() || 'NO TITLE';
+    const words = text.split(/\s+/);
+    const longest = Math.max(...words.map(w => w.length));
+    // Fit the longest word across the poster width.
+    const size = Math.min(15, 88 / (longest * .78));
+    let i = 0;
+    words.forEach((word, wi) => {
+      if (wi) { const g = document.createElement('span'); g.className = 'gap'; el.appendChild(g); }
+      const w = document.createElement('span'); w.className = 'word';
+      for (const ch of word) {
+        const r = rng(seed ^ hash('h' + i + ch));
+        const [family, weight, fstyle, nudge] = pick(r, S.headFaces);
+        const [paper, ink] = pick(r, S.headStocks);
+        const glyph = S.upperOnly ? ch.toUpperCase() : (/[a-z]/i.test(ch) ? (r() < .55 ? ch.toUpperCase() : ch.toLowerCase()) : ch);
+        const scale = 1 + sym(r) * .12 * chaos * 2;
+        const s = document.createElement('span'); s.className = 'scrap'; draggable(s, 'h' + i);
+        s.setAttribute('aria-label', `Letter ${glyph}, drag to move`);
+        s.style.margin = `0 ${(.15 + r() * .25).toFixed(2)}cqw`;
+        s.style.transform = `translateY(${(sym(r) * size * .07 * chaos * 2).toFixed(2)}cqw) rotate(${(sym(r) * 9 * chaos).toFixed(1)}deg)`;
+        const inner = document.createElement('span'); inner.className = 'scrap-inner';
+        inner.textContent = glyph;
+        Object.assign(inner.style, {
+          fontFamily: family, fontWeight: weight, fontStyle: fstyle,
+          fontSize: (size * scale * nudge).toFixed(2) + 'cqw', color: ink, background: paper,
+          clipPath: tornPath(r, .3 + chaos * .7),
+          padding: `${(.08 + r() * .08).toFixed(2)}em ${(.08 + r() * .1).toFixed(2)}em ${(.04 + r() * .06).toFixed(2)}em`,
+        });
+        s.appendChild(inner); w.appendChild(s); i++;
+      }
+      el.appendChild(w);
+    });
+  }
+
+  // ---------- Pasted strips ----------
+  function renderStrips(id, text, sizeCqw, chaos, opts = {}) {
+    const S = STYLES[style];
+    const el = $(id);
+    el.replaceChildren();
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    lines.forEach((line, n) => el.appendChild(makeStrip(line, id + n, sizeCqw, chaos, opts)));
+  }
+  function makeStrip(line, key, sizeCqw, chaos, opts = {}) {
+    const S = STYLES[style];
+    const r = rng(seed ^ hash(key + line));
+    const s = document.createElement('span'); s.className = 'strip'; draggable(s, key);
+    s.textContent = opts.upper ? line.toUpperCase() : line;
+    const face = opts.face || pick(r, S.stripFaces);
+    const [bg, ink] = (opts.accent && S.accentStrip) ? S.accentStrip : S.stripStock;
+    s.style.setProperty('--strip-bg', bg);
+    s.style.setProperty('--strip-ink', ink);
+    s.style.fontFamily = face;
+    s.style.fontSize = sizeCqw + 'cqw';
+    s.style.clipPath = tornPath(r, .15 + chaos * .35);
+    s.style.transform = `rotate(${(sym(r) * 2.4 * chaos).toFixed(2)}deg) translateX(${(sym(r) * 1.2 * chaos).toFixed(2)}cqw)`;
+    return s;
+  }
+
+  // ---------- Copies and stickers ----------
+  function cleanClone(src) {
+    const c = src.cloneNode(true);
+    c.removeAttribute('id');
+    c.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+    c.classList.remove('gone', 'dragging', 'flying');
+    c.removeAttribute('hidden');
+    ['translate', 'rotate', 'scale', 'zIndex', 'margin'].forEach(p => c.style[p] = '');
+    c.removeAttribute('data-key');
+    return c;
+  }
+  function buildExtra(x, chaos) {
+    let el;
+    if (x.kind === 'sticker') {
+      const S = STYLES[style];
+      el = makeStrip(x.text, x.key, 4.6, chaos, { upper: true, accent: !!S.accentStrip, face: style === 'xerox' ? '"Permanent Marker", cursive' : null });
+    } else {
+      // A copy follows its source when the source still exists, so restyling updates it too.
+      const src = pieceFor(x.src);
+      if (src && !src.closest('.extras')) { el = cleanClone(src); x.html = el.outerHTML; }
+      else { const t = document.createElement('template'); t.innerHTML = x.html || '<span></span>'; el = t.content.firstElementChild; }
+      draggable(el, x.key);
+    }
+    el.style.left = x.left + 'cqw';
+    el.style.top = x.top + 'cqw';
+    return el;
+  }
+  function renderExtras(chaos) {
+    const box = $('extras');
+    box.replaceChildren();
+    extras.forEach(x => box.appendChild(buildExtra(x, chaos)));
+  }
+  // Put a freshly added extra so its centre lands at (cx, cy), given in cqw from the poster's top-left.
+  function placeExtra(x, cx, cy) {
+    const el = buildExtra(x, +$('chaos').value);
+    el.style.visibility = 'hidden';
+    $('extras').appendChild(el);
+    const k = 100 / poster.clientWidth;
+    x.left = +(cx - el.offsetWidth * k / 2).toFixed(2);
+    x.top = +(cy - el.offsetHeight * k / 2).toFixed(2);
+    el.style.left = x.left + 'cqw'; el.style.top = x.top + 'cqw';
+    el.style.visibility = '';
+    return el;
+  }
+
+  // ---------- Price star ----------
+  function renderStar(chaos) {
+    const S = STYLES[style];
+    const r = rng(seed ^ hash('star'));
+    const pts = [], n = 5;
+    for (let k = 0; k < n * 2; k++) {
+      const a = -Math.PI / 2 + k * Math.PI / n;
+      const rad = (k % 2 ? 22 : 48) + sym(r) * 3 * chaos;
+      pts.push(`${(50 + Math.cos(a) * rad).toFixed(1)},${(52 + Math.sin(a) * rad).toFixed(1)}`);
+    }
+    $('starShape').setAttribute('points', pts.join(' '));
+    $('starShape').setAttribute('fill', S.star);
+    const p = $('price');
+    p.textContent = $('tPrice').value.trim() || 'Free';
+    p.style.fontFamily = style === 'xerox' ? '"Permanent Marker", cursive' : '"Courier Prime", monospace';
+    p.style.fontWeight = 700;
+    p.style.color = S.starInk || '#121110';
+    $('star').style.transform = `rotate(${(sym(r) * 14 * chaos).toFixed(1)}deg)`;
+    $('star').hidden = !$('tPrice').value.trim();
+    draggable($('star'), 'star');
+  }
+
+  // ---------- Photo: photocopy look ----------
+  // Bayer 4×4 gives the coarse screen pattern; grit adds toner noise on top.
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + .5) / 16 - .5);
+
+  function fbm(w, h, r) {
+    // Cheap value noise, 3 octaves, for the placeholder when there is no photo.
+    const out = new Float32Array(w * h);
+    [[6, .55], [17, .3], [53, .15]].forEach(([cells, amp]) => {
+      const gw = cells + 1, gh = Math.ceil(cells * h / w) + 1;
+      const g = Array.from({ length: gw * gh }, () => r());
+      for (let y = 0; y < h; y++) {
+        const fy = y / h * (gh - 1), y0 = fy | 0, ty = fy - y0, sy = ty * ty * (3 - 2 * ty);
+        for (let x = 0; x < w; x++) {
+          const fx = x / w * (gw - 1), x0 = fx | 0, tx = fx - x0, sx = tx * tx * (3 - 2 * tx);
+          const a = g[y0 * gw + x0], b = g[y0 * gw + x0 + 1], c = g[(y0 + 1) * gw + x0], d = g[(y0 + 1) * gw + x0 + 1];
+          out[y * w + x] += amp * ((a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy);
+        }
+      }
+    });
+    return out;
+  }
+
+  function renderPhoto() {
+    const S = STYLES[style];
+    const box = $('photo').getBoundingClientRect();
+    const cv = $('photoCanvas');
+    const W = 640, H = Math.max(200, Math.round(W * (box.height / Math.max(1, box.width)) || 828));
+    cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const r = rng(seed ^ hash('photo'));
+    const grit = +$('grit').value, contrast = +$('contrast').value;
+    let lum;
+
+    if (photoImg) {
+      // cover-fit the photo
+      const s = Math.max(W / photoImg.width, H / photoImg.height);
+      const dw = photoImg.width * s, dh = photoImg.height * s;
+      ctx.drawImage(photoImg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      const d = ctx.getImageData(0, 0, W, H).data;
+      lum = new Float32Array(W * H);
+      for (let i = 0; i < W * H; i++) lum[i] = (d[i * 4] * .299 + d[i * 4 + 1] * .587 + d[i * 4 + 2] * .114) / 255;
+    } else {
+      lum = fbm(W, H, r);
+      for (let i = 0; i < lum.length; i++) lum[i] = lum[i] * 1.1 - .2;
+      // a chain-link fence across part of the placeholder, nodding to the Replacements flyer
+      const fenceX = W * (.45 + r() * .2);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (x > fenceX) {
+          const u = ((x + y) % 22), v = ((x - y + 2200) % 22);
+          if (u < 3 || v < 3) lum[y * W + x] = Math.min(lum[y * W + x], .2);
+          else lum[y * W + x] = lum[y * W + x] * .6 + .4;
+        }
+      }
+    }
+
+    const img = ctx.createImageData(W, H);
+    const o = img.data, [ir, ig, ib] = S.photoInk, [pr, pg, pb] = S.photoPaper;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      let v = (lum[i] - .5) * contrast + .5;
+      v += BAYER[(y & 3) * 4 + (x & 3)] * (.25 + grit * .5);
+      v += (r() - .5) * grit * .55;
+      // horizontal photocopier streaks
+      if (((y * 7919) % 97) < grit * 3) v -= .25;
+      const ink = v < .5;
+      o[i * 4] = ink ? ir : pr; o[i * 4 + 1] = ink ? ig : pg; o[i * 4 + 2] = ink ? ib : pb; o[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    $('photoHint').hidden = !!photoImg;
+  }
+
+  function renderGrain() {
+    const cv = $('grain'), ctx = cv.getContext('2d');
+    const r = rng(seed ^ hash('grain'));
+    const grit = +$('grit').value;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const count = Math.round(2500 * grit);
+    for (let k = 0; k < count; k++) {
+      ctx.fillStyle = r() < .5 ? 'rgba(0,0,0,.7)' : 'rgba(240,236,226,.6)';
+      const s = r() * 2.2 + .4;
+      ctx.fillRect(r() * cv.width, r() * cv.height, s, s);
+    }
+    // a couple of toner smears down the edge
+    ctx.fillStyle = 'rgba(0,0,0,.35)';
+    for (let k = 0; k < 3 * grit; k++) ctx.fillRect(r() < .5 ? r() * 30 : cv.width - r() * 30, 0, 1 + r() * 3, cv.height);
+  }
+
+  function renderPieces(chaos) {
+    renderHeadline(chaos);
+    const handFace = style === 'xerox' ? '"Architects Daughter", cursive' : null;
+    renderStrips('when', $('tWhen').value, 4.4, chaos, { face: handFace, upper: style === 'xerox' });
+    renderStrips('lineup', $('tLineup').value, 4.9, chaos, { face: handFace, upper: style !== 'magazine' });
+    renderStrips('where', $('tWhere').value, 3.9, chaos, { face: handFace, upper: style === 'xerox' });
+    // In the riot look, the first lineup slot is the headliner on a red strip.
+    if (style === 'riot') {
+      const first = $('lineup').firstElementChild;
+      if (first) { first.style.setProperty('--strip-bg', '#e8262f'); first.style.fontFamily = '"Black Ops One", sans-serif'; }
+    }
+    renderStar(chaos);
+    renderExtras(chaos);
+  }
+
+  // ---------- Render all ----------
+  function render() {
+    const chaos = +$('chaos').value;
+    poster.dataset.style = style;
+    poster.style.setProperty('--bg-poster', STYLES[style].bg);
+    ['chaos', 'grit', 'contrast'].forEach(k => $(k + '-o').textContent = (+$(k).value).toFixed(2));
+
+    renderPieces(chaos);
+    draggable($('photo'), 'photo');
+    renderPhoto();
+    renderGrain();
+    updateSel();
+  }
+
+  // ---------- Selecting, dragging, rotating, resizing ----------
+  const sel = $('sel');
+  let selKey = null;
+  let drag = null;
+
+  const pieceFor = (key) => key && poster.querySelector(`[data-key="${key}"]`);
+  const baseRot = (el) => { const m = /rotate\(([-\d.]+)deg\)/.exec(el.style.transform || ''); return m ? +m[1] : 0; };
+  const canMove = (key) => !(key === 'photo' && style === 'xerox');
+
+  function center(el) {
+    const b = el.getBoundingClientRect();
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+  }
+
+  // The selection box is drawn in the poster's own frame, matching the piece's size, rotation and scale.
+  function updateSel() {
+    const el = pieceFor(selKey);
+    const live = !!el && !el.hidden && !el.classList.contains('gone') && canMove(selKey);
+    $('dupBtn').disabled = !live || selKey === 'photo';
+    $('delBtn').disabled = !live;
+    $('frontBtn').disabled = !live;
+    if (!live) { sel.hidden = true; return; }
+    const o = state(selKey), pb = poster.getBoundingClientRect(), c = center(el);
+    const pad = 6;
+    sel.hidden = false;
+    sel.style.width = el.offsetWidth * o.s + pad * 2 + 'px';
+    sel.style.height = el.offsetHeight * o.s + pad * 2 + 'px';
+    sel.style.transform = `translate(${c.x - pb.left}px, ${c.y - pb.top}px) translate(-50%, -50%) rotate(${baseRot(el) + (o.r || 0)}deg)`;
+  }
+
+  function select(key) {
+    selKey = key;
+    const el = pieceFor(key);
+    if (el) {
+      const o = state(key);
+      o.z = ++topZ;
+      el.style.zIndex = o.z;
+      if (document.activeElement !== el) el.focus({ preventScroll: true });
+    }
+    updateSel();
+  }
+
+  poster.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.sel')) return;
+    const el = e.target.closest('[data-key]');
+    if (!el || !canMove(el.dataset.key)) { select(null); return; }
+    e.preventDefault();
+    select(el.dataset.key);
+    const o = state(el.dataset.key);
+    el.classList.add('dragging');
+    try { poster.setPointerCapture(e.pointerId); } catch {}
+    drag = { mode: 'move', el, o, sx: e.clientX, sy: e.clientY, ox: o.x, oy: o.y, k: 100 / poster.clientWidth };
+  });
+
+  function startHandle(mode, e) {
+    const el = pieceFor(selKey);
+    if (!el) return;
+    e.preventDefault(); e.stopPropagation();
+    const o = state(selKey), c = center(el);
+    try { poster.setPointerCapture(e.pointerId); } catch {}
+    el.classList.add('dragging');
+    drag = {
+      mode, el, o, c, r0: o.r || 0, s0: o.s || 1,
+      a0: Math.atan2(e.clientY - c.y, e.clientX - c.x),
+      d0: Math.max(8, Math.hypot(e.clientX - c.x, e.clientY - c.y)),
+    };
+  }
+  $('hRot').addEventListener('pointerdown', (e) => startHandle('rotate', e));
+  $('hScale').addEventListener('pointerdown', (e) => startHandle('scale', e));
+
+  poster.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const { o, el } = drag;
+    if (drag.mode === 'move') {
+      o.x = +(drag.ox + (e.clientX - drag.sx) * drag.k).toFixed(2);
+      o.y = +(drag.oy + (e.clientY - drag.sy) * drag.k).toFixed(2);
+    } else if (drag.mode === 'rotate') {
+      let r = drag.r0 + (Math.atan2(e.clientY - drag.c.y, e.clientX - drag.c.x) - drag.a0) * 180 / Math.PI;
+      if (e.shiftKey) { const total = Math.round((r + baseRot(el)) / 15) * 15; r = total - baseRot(el); }
+      o.r = +r.toFixed(1);
+    } else {
+      const d = Math.hypot(e.clientX - drag.c.x, e.clientY - drag.c.y);
+      o.s = +Math.min(5, Math.max(.25, drag.s0 * d / drag.d0)).toFixed(3);
+    }
+    applyT(el, o);
+    updateSel();
+  });
+  const endDrag = () => { if (drag) { drag.el.classList.remove('dragging'); drag = null; } };
+  poster.addEventListener('pointerup', endDrag);
+  poster.addEventListener('pointercancel', endDrag);
+
+  poster.addEventListener('focusin', (e) => {
+    const el = e.target.closest('[data-key]');
+    if (el && el.dataset.key !== selKey && canMove(el.dataset.key)) select(el.dataset.key);
+  });
+
+  poster.addEventListener('keydown', (e) => {
+    const el = e.target.closest('[data-key]');
+    if (!el) return;
+    const o = state(el.dataset.key), big = e.shiftKey;
+    const move = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (move) { const st = big ? 2.5 : .5; o.x = +(o.x + move[0] * st).toFixed(2); o.y = +(o.y + move[1] * st).toFixed(2); }
+    else if (e.key === '[' || e.key === '{') o.r = +((o.r || 0) - (big ? 15 : 3)).toFixed(1);
+    else if (e.key === ']' || e.key === '}') o.r = +((o.r || 0) + (big ? 15 : 3)).toFixed(1);
+    else if (e.key === '-' || e.key === '_') o.s = +Math.max(.25, (o.s || 1) - (big ? .2 : .05)).toFixed(3);
+    else if (e.key === '=' || e.key === '+') o.s = +Math.min(5, (o.s || 1) + (big ? .2 : .05)).toFixed(3);
+    else if (e.key === 'Escape') { select(null); el.blur(); return; }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removePiece(el.dataset.key); return; }
+    else if ((e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) { e.preventDefault(); duplicate(el.dataset.key); return; }
+    else return;
+    e.preventDefault();
+    applyT(el, o);
+    updateSel();
+  });
+
+  function removePiece(key) {
+    if (!key) return;
+    const i = extras.findIndex(x => x.key === key);
+    if (i >= 0) { extras.splice(i, 1); delete offsets[key]; pieceFor(key)?.remove(); }
+    else { state(key).gone = true; applyT(pieceFor(key), state(key)); }
+    select(null);
+    scheduleSave();
+  }
+
+  function duplicate(key) {
+    const src = pieceFor(key);
+    if (!src || key === 'photo') return;
+    const pb = poster.getBoundingClientRect(), c = center(src), k = 100 / pb.width;
+    const from = extras.find(x => x.key === key);
+    const x = from ? { ...from, key: 'x' + (++extraN) } : { key: 'x' + (++extraN), kind: 'copy', src: key };
+    if (x.kind === 'copy' && !from) x.html = cleanClone(src).outerHTML;
+    extras.push(x);
+    const so = state(key);
+    offsets[x.key] = { x: 0, y: 0, r: so.r || 0, s: so.s || 1, z: ++topZ };
+    placeExtra(x, (c.x - pb.left) * k + 3, (c.y - pb.top) * k + 3);
+    applyT(pieceFor(x.key), offsets[x.key]);
+    select(x.key);
+    scheduleSave();
+  }
+
+  function addSticker(text) {
+    text = text.trim();
+    if (!text) return;
+    const x = { key: 'x' + (++extraN), kind: 'sticker', text };
+    extras.push(x);
+    const r = Math.random;
+    offsets[x.key] = { x: 0, y: 0, r: +((r() * 2 - 1) * 12).toFixed(1), s: 1, z: ++topZ };
+    const ratio = poster.clientHeight / poster.clientWidth * 100;
+    placeExtra(x, 25 + r() * 50, ratio * (.3 + r() * .4));
+    applyT(pieceFor(x.key), offsets[x.key]);
+    select(x.key);
+    scheduleSave();
+  }
+
+  $('dupBtn').addEventListener('click', () => duplicate(selKey));
+  $('delBtn').addEventListener('click', () => removePiece(selKey));
+  $('frontBtn').addEventListener('click', () => select(selKey));
+  $('chips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) addSticker(b.textContent); });
+  $('addSticker').addEventListener('click', () => { addSticker($('stickerText').value); $('stickerText').value = ''; });
+  $('stickerText').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('addSticker').click(); } });
+
+  // Reset layout: everything back in its starting spot, deleted pieces return. Copies and stickers stay.
+  $('resetPos').addEventListener('click', () => {
+    offsets = {};
+    poster.querySelectorAll('[data-key]').forEach(el => applyT(el, {}));
+    select(null);
+    scheduleSave();
+  });
+
+  // Start over asks twice, since it also clears the saved copy.
+  let armed = null;
+  $('startOver').addEventListener('click', () => {
+    const b = $('startOver');
+    if (!armed) {
+      b.textContent = 'Click again to clear';
+      armed = setTimeout(() => { armed = null; b.textContent = 'Start over'; }, 3000);
+      return;
+    }
+    clearTimeout(armed); armed = null; b.textContent = 'Start over';
+    try { localStorage.removeItem(STORE); } catch {}
+    FIELDS.forEach(id => { $(id).value = $(id).defaultValue; });
+    style = 'xerox'; seed = 9137; offsets = {}; extras = []; extraN = 0; topZ = 10;
+    syncStyleButtons();
+    select(null);
+    render();
+  });
+
+  // ---------- Export ----------
+  // Renders the poster at print-ish resolution (≈2550×3300, 300dpi letter) without the selection box.
+  $('savePng').addEventListener('click', async () => {
+    const b = $('savePng');
+    if (!window.htmlToImage) { b.textContent = 'Export unavailable'; return; }
+    const prev = selKey;
+    select(null);
+    b.disabled = true; b.textContent = 'Saving…';
+    try {
+      await document.fonts.ready;
+      const ratio = 2550 / poster.clientWidth;
+      const url = await htmlToImage.toPng(poster, { pixelRatio: ratio, filter: (n) => !(n.classList && (n.classList.contains('sel') || n.classList.contains('photo-hint'))) });
+      const a = document.createElement('a');
+      const name = ($('tHead').value.trim() || 'flyer').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      a.download = `${name || 'flyer'}.png`;
+      a.href = url;
+      document.body.appendChild(a); a.click(); a.remove();
+      b.textContent = 'Saved';
+    } catch (err) {
+      console.error(err);
+      b.textContent = 'Save failed';
+    }
+    setTimeout(() => { b.textContent = 'Save PNG'; b.disabled = false; }, 1600);
+    if (prev) select(prev);
+  });
+
+  // ---------- Saving (this browser only) ----------
+  const STORE = 'xerox-flyer-v1';
+  const FIELDS = ['tHead', 'tLineup', 'tWhen', 'tWhere', 'tPrice', 'chaos', 'grit', 'contrast'];
+  let saveT;
+  function scheduleSave() {
+    clearTimeout(saveT);
+    saveT = setTimeout(() => {
+      const data = { style, seed, topZ, extraN, offsets, extras, fields: Object.fromEntries(FIELDS.map(id => [id, $(id).value])) };
+      try { localStorage.setItem(STORE, JSON.stringify(data)); } catch {}
+    }, 300);
+  }
+  function load() {
+    let d;
+    try { d = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch { d = null; }
+    if (!d) return;
+    if (STYLES[d.style]) style = d.style;
+    if (Number.isFinite(d.seed)) seed = d.seed;
+    topZ = d.topZ || 10; extraN = d.extraN || 0;
+    offsets = d.offsets || {}; extras = Array.isArray(d.extras) ? d.extras : [];
+    Object.entries(d.fields || {}).forEach(([id, v]) => { if (FIELDS.includes(id) && typeof v === 'string') $(id).value = v; });
+  }
+  function syncStyleButtons() {
+    document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.style === style)));
+  }
+  // Any edit, drag or click inside the app is a reason to save.
+  ['input', 'pointerup', 'keyup', 'click'].forEach(t => document.addEventListener(t, scheduleSave));
+
+  // Fling every headline letter somewhere loose on the poster, ready to be placed by hand.
+  $('scatter').addEventListener('click', () => {
+    select(null);
+    const pb = poster.getBoundingClientRect(), k = 100 / pb.width;
+    const letters = [...poster.querySelectorAll('.headline [data-key]')];
+    const r = rng((Math.random() * 2 ** 31) | 0);
+    letters.forEach(el => {
+      const o = state(el.dataset.key);
+      // measure where the letter sits with no offset, then aim for a random spot
+      const prev = { ...o };
+      applyT(el, { z: o.z });
+      const c = center(el);
+      const tx = pb.left + pb.width * (.08 + r() * .84);
+      const ty = pb.top + pb.height * (.12 + r() * .76);
+      applyT(el, prev);
+      void el.offsetWidth;
+      el.classList.add('flying');
+      Object.assign(o, { x: +((tx - c.x) * k).toFixed(2), y: +((ty - c.y) * k).toFixed(2), r: +(sym(r) * 40).toFixed(1), s: 1, z: ++topZ });
+      applyT(el, o);
+      setTimeout(() => el.classList.remove('flying'), 600);
+    });
+  });
+
+  // ---------- Events ----------
+  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+    style = b.dataset.style;
+    document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    requestAnimationFrame(render);
+  }));
+  ['tHead', 'tLineup', 'tWhen', 'tWhere', 'tPrice', 'chaos'].forEach(id => $(id).addEventListener('input', () => {
+    const chaos = +$('chaos').value;
+    // text edits don't need the photo re-processed
+    poster.dataset.style = style;
+    $('chaos-o').textContent = chaos.toFixed(2);
+    renderPieces(chaos);
+    updateSel();
+  }));
+  let t;
+  ['grit', 'contrast'].forEach(id => $(id).addEventListener('input', () => {
+    $(id + '-o').textContent = (+$(id).value).toFixed(2);
+    clearTimeout(t); t = setTimeout(() => { renderPhoto(); renderGrain(); }, 40);
+  }));
+  $('reroll').addEventListener('click', () => { seed = (Math.random() * 2 ** 31) | 0; render(); });
+  $('file').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => { photoImg = img; $('clearPhoto').hidden = false; renderPhoto(); };
+    img.src = url;
+  });
+  $('clearPhoto').addEventListener('click', () => { photoImg = null; $('file').value = ''; $('clearPhoto').hidden = true; renderPhoto(); });
+  let rt;
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { renderPhoto(); updateSel(); }, 150); });
+
+  load();
+  syncStyleButtons();
+  render();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+})();
+</script>
+</body>
+</html>
